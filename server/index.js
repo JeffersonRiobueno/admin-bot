@@ -6,6 +6,10 @@ import fs from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -54,7 +58,7 @@ app.use(express.json());
 
 // Serve frontend build if present (allows single-container deployment)
 try {
-  const clientDist = path.join(process.cwd(), 'dist');
+  const clientDist = path.resolve(__dirname, '../dist');
   if (fs.existsSync(clientDist)) {
     app.use(express.static(clientDist));
     app.get('*', (req, res) => {
