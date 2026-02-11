@@ -4,16 +4,39 @@ import Sidebar from './components/Sidebar';
 import StatsCards from './components/StatsCards';
 import UserModal from './components/UserModal';
 import GroupModal from './components/GroupModal';
-import { User, Group, TEAMS, MONTHS } from './types';
-import { fetchUsers, fetchGroups } from './services/mockData';
+import Login from './components/Login';
+import { User, Group, TEAMS, MONTHS, MONTH_MAP } from './types';
+import { fetchUsers, fetchGroups, createUser, updateUser, createGroup, updateGroup, deleteGroup, logout, me } from './services/mockData';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('users');
+
+  const routeToTab = (route: string) => {
+    if (!route) return 'users';
+    if (route === 'config-group' || route === 'groups') return 'groups';
+    if (route === 'users') return 'users';
+    return 'users';
+  };
+
+  const tabToRoute = (tab: string) => {
+    if (tab === 'groups') return 'config-group';
+    return 'users';
+  };
+
+  const navigateTo = (tab: string) => {
+    setActiveTab(tab);
+    const route = tabToRoute(tab);
+    const current = window.location.hash.replace(/^#\/?/, '');
+    if (current !== route) window.location.hash = `#/${route}`;
+  };
   const [users, setUsers] = useState<User[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterTeam, setFilterTeam] = useState('Todos');
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterMonth, setFilterMonth] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
@@ -23,35 +46,187 @@ const App: React.FC = () => {
 
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'info'} | null>(null);
 
-  useEffect(() => {
-    const loadData = async () => {
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authUser, setAuthUser] = useState<any | null>(null);
+  const inactivityTimeout = 10 * 60 * 1000; // 10 minutes
+  const inactivityRef = React.useRef<number | null>(null);
+
+  const clearInactivity = () => {
+    if (inactivityRef.current) {
+      window.clearTimeout(inactivityRef.current);
+      inactivityRef.current = null;
+    }
+  };
+
+  const startInactivity = () => {
+    clearInactivity();
+    inactivityRef.current = window.setTimeout(() => {
+      handleLogout(true);
+    }, inactivityTimeout) as unknown as number;
+  };
+
+  const resetInactivity = () => {
+    if (!isAuthenticated) return;
+    startInactivity();
+  };
+
+  const attachActivityListeners = () => {
+    window.addEventListener('mousemove', resetInactivity);
+    window.addEventListener('mousedown', resetInactivity);
+    window.addEventListener('keydown', resetInactivity);
+    window.addEventListener('touchstart', resetInactivity);
+  };
+
+  const detachActivityListeners = () => {
+    window.removeEventListener('mousemove', resetInactivity);
+    window.removeEventListener('mousedown', resetInactivity);
+    window.removeEventListener('keydown', resetInactivity);
+    window.removeEventListener('touchstart', resetInactivity);
+  };
+
+  const handleLogin = (token: string, userObj: any) => {
+    setIsAuthenticated(true);
+    setAuthUser(userObj || null);
+    startInactivity();
+    attachActivityListeners();
+    // load data for current tab after login
+    (async () => {
       try {
         setIsLoading(true);
-        const [userData, groupData] = await Promise.all([fetchUsers(), fetchGroups()]);
-        setUsers(userData);
-        setGroups(groupData);
-      } catch (error) {
-        console.error("Error loading data", error);
+        if (activeTab === 'users') {
+          const u = await fetchUsers();
+          setUsers(u);
+        } else {
+          const g = await fetchGroups();
+          setGroups(g);
+        }
+      } catch (e) {
+        console.error('Error loading after login', e);
       } finally {
         setIsLoading(false);
       }
+    })();
+  };
+
+  const handleLogout = async (silent = false) => {
+    try {
+      const token = localStorage.getItem('authToken');
+      if (token) {
+        await logout();
+      }
+    } catch (e) {
+      console.warn('logout failed', e);
+    }
+    localStorage.removeItem('authToken');
+    setIsAuthenticated(false);
+    setAuthUser(null);
+    clearInactivity();
+    detachActivityListeners();
+    if (!silent) showNotification('Sesión cerrada', 'info');
+  };
+
+  useEffect(() => {
+    // initialize activeTab from URL hash
+    const initial = window.location.hash.replace(/^#\/?/, '');
+    if (initial) setActiveTab(routeToTab(initial));
+    const onHash = () => {
+      const r = window.location.hash.replace(/^#\/?/, '');
+      setActiveTab(routeToTab(r));
     };
-    loadData();
+    window.addEventListener('hashchange', onHash);
+
+    // initial load will be handled by activeTab effect
+
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // validate token on mount
+  useEffect(() => {
+    const initAuth = async () => {
+      const token = localStorage.getItem('authToken');
+      if (!token) return;
+      try {
+        const resp = await me();
+        if (resp && (resp as any).user) {
+          setIsAuthenticated(true);
+          setAuthUser((resp as any).user);
+          attachActivityListeners();
+          startInactivity();
+        } else {
+          localStorage.removeItem('authToken');
+        }
+      } catch (e) {
+        localStorage.removeItem('authToken');
+      }
+    };
+    initAuth();
+    return () => { clearInactivity(); detachActivityListeners(); };
+  }, []);
+
+  // Load only the data needed for the active tab to avoid unnecessary requests
+  useEffect(() => {
+    let mounted = true;
+    const loadForTab = async () => {
+      try {
+        setIsLoading(true);
+        if (activeTab === 'users') {
+          const userData = await fetchUsers();
+          if (!mounted) return;
+          setUsers(userData);
+        } else {
+          const groupData = await fetchGroups();
+          if (!mounted) return;
+          setGroups(groupData);
+        }
+      } catch (error) {
+        console.error('Error loading data for tab', error);
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    };
+    loadForTab();
+    return () => { mounted = false; };
+  }, [activeTab]);
+
+  const toMonthNumber = (m: any): number | null => {
+    if (m === null || m === undefined) return null;
+    if (typeof m === 'number') return m;
+    const asNum = parseInt(String(m));
+    if (!isNaN(asNum)) return asNum;
+    if (typeof m === 'string' && MONTH_MAP[m]) return MONTH_MAP[m] + 1;
+    return null;
+  };
+
   const filteredUsers = useMemo(() => {
-    return users.filter(user => {
+    const q = (searchQuery || '').toLowerCase();
+    let list = users.filter(user => {
       const matchesTeam = filterTeam === 'Todos' || user.equipo === filterTeam;
-      const matchesSearch = user.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           user.id_empleado.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesTeam && matchesSearch;
+      const userMonthNum = toMonthNumber(user.mes);
+      const matchesMonth = !filterMonth || (userMonthNum !== null && userMonthNum === filterMonth);
+      const matchesSearch = (user.nombre || '').toLowerCase().includes(q) || 
+                           (user.id_empleado || '').toLowerCase().includes(q);
+      return matchesTeam && matchesSearch && matchesMonth;
     });
-  }, [users, filterTeam, searchQuery]);
+
+    if (sortBy) {
+      list = list.slice().sort((a, b) => {
+        const va = String((a as any)[sortBy] ?? '').toLowerCase();
+        const vb = String((b as any)[sortBy] ?? '').toLowerCase();
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [users, filterTeam, searchQuery, filterMonth, sortBy, sortDir]);
 
   const filteredGroups = useMemo(() => {
+    const q = (searchQuery || '').toLowerCase();
     return groups.filter(group => {
-      return group.equipo.toLowerCase().includes(searchQuery.toLowerCase()) || 
-             group.group_id.toLowerCase().includes(searchQuery.toLowerCase());
+      return (group.name || '').toLowerCase().includes(q) || 
+             (group.group_id || '').toLowerCase().includes(q);
     });
   }, [groups, searchQuery]);
 
@@ -66,22 +241,26 @@ const App: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleDeactivateUser = (id: number) => {
-    if (confirm('¿Está seguro de desactivar este registro?')) {
-      setUsers(prev => prev.map(u => u.id === id ? { ...u, estado: 'Inactivo' } : u));
-      showNotification('Registro marcado como Inactivo', 'info');
-    }
-  };
+  // Deactivate action removed from UI per request
 
-  const handleSaveUser = (userData: User) => {
-    if (userToEdit) {
-      setUsers(prev => prev.map(u => u.id === userData.id ? userData : u));
-      showNotification('Cambios guardados con éxito', 'success');
-    } else {
-      setUsers(prev => [...prev, userData]);
-      showNotification('Nuevo colaborador registrado', 'success');
+  const handleSaveUser = async (userData: User) => {
+    try {
+      if (userToEdit && userData.id) {
+        const res = await updateUser(userData.id, userData);
+        if ((res as any).error) throw new Error((res as any).error);
+        showNotification('Cambios guardados con éxito', 'success');
+      } else {
+        const res = await createUser(userData);
+        if ((res as any).error) throw new Error((res as any).error);
+        showNotification('Nuevo colaborador registrado', 'success');
+      }
+      const fresh = await fetchUsers();
+      setUsers(fresh);
+      setIsModalOpen(false);
+    } catch (err: any) {
+      console.error('Save user failed', err);
+      alert('Error al guardar: ' + String(err.message || err));
     }
-    setIsModalOpen(false);
   };
 
   // Group CRUD
@@ -95,22 +274,38 @@ const App: React.FC = () => {
     setIsGroupModalOpen(true);
   };
 
-  const handleDeleteGroup = (id: number) => {
-    if (confirm('¿Está seguro de eliminar este grupo?')) {
-      setGroups(prev => prev.filter(g => g.id !== id));
+  const handleDeleteGroup = async (id: number) => {
+    if (!confirm('¿Está seguro de eliminar este grupo?')) return;
+    try {
+      const res = await deleteGroup(id);
+      if ((res as any).error) throw new Error((res as any).error);
+      const fresh = await fetchGroups();
+      setGroups(fresh);
       showNotification('Grupo eliminado', 'info');
+    } catch (err: any) {
+      console.error('Delete group failed', err);
+      alert('Error eliminando grupo: ' + String(err.message || err));
     }
   };
 
-  const handleSaveGroup = (groupData: Group) => {
-    if (groupToEdit) {
-      setGroups(prev => prev.map(g => g.id === groupData.id ? groupData : g));
-      showNotification('Grupo actualizado', 'success');
-    } else {
-      setGroups(prev => [...prev, groupData]);
-      showNotification('Nuevo grupo creado', 'success');
+  const handleSaveGroup = async (groupData: Group) => {
+    try {
+      if (groupToEdit && groupData.id) {
+        const res = await updateGroup(groupData.id, groupData as any);
+        if ((res as any).error) throw new Error((res as any).error);
+        showNotification('Grupo actualizado', 'success');
+      } else {
+        const res = await createGroup(groupData as any);
+        if ((res as any).error) throw new Error((res as any).error);
+        showNotification('Nuevo grupo creado', 'success');
+      }
+      const fresh = await fetchGroups();
+      setGroups(fresh);
+      setIsGroupModalOpen(false);
+    } catch (err: any) {
+      console.error('Save group failed', err);
+      alert('Error guardando grupo: ' + String(err.message || err));
     }
-    setIsGroupModalOpen(false);
   };
 
   const showNotification = (message: string, type: 'success' | 'info') => {
@@ -120,27 +315,53 @@ const App: React.FC = () => {
 
   const isBirthdaySoon = (user: User) => {
     const now = new Date();
-    const currentMonth = MONTHS[now.getMonth()];
+    const nowMonthNum = now.getMonth() + 1;
     const currentDay = now.getDate();
-    return user.mes === currentMonth && (user.dia >= currentDay && user.dia <= currentDay + 7);
+    const userMonthNum = toMonthNumber(user.mes);
+    return (userMonthNum !== null && userMonthNum === nowMonthNum) && (user.dia >= currentDay && user.dia <= currentDay + 7);
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | boolean) => {
+    // Normalize various representations of status to boolean/label
+    const normalizeActive = (s: any): { active: boolean | null; label: string } => {
+      if (s === true || s === 1 || s === '1') return { active: true, label: 'Activo' };
+      if (s === false || s === 0 || s === '0') return { active: false, label: 'Inactivo' };
+      if (typeof s === 'string') {
+        const low = s.toLowerCase();
+        if (low === 'true' || low === 'activo' || low === 'act' ) return { active: true, label: 'Activo' };
+        if (low === 'false' || low === 'inactivo' || low === 'inactive') return { active: false, label: 'Inactivo' };
+        // other known statuses fall back to string label
+        return { active: null, label: s };
+      }
+      return { active: null, label: String(s) };
+    };
+
+    const n = normalizeActive(status);
+    if (n.active === true) {
+      const styles = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+      return <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${styles}`}>{n.label}</span>;
+    }
+    if (n.active === false) {
+      const styles = 'bg-rose-50 text-rose-600 border-rose-100';
+      return <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${styles}`}>{n.label}</span>;
+    }
     const styles: Record<string, string> = {
-      'Activo': 'bg-emerald-50 text-emerald-600 border-emerald-100',
-      'Inactivo': 'bg-rose-50 text-rose-600 border-rose-100',
       'Licencia': 'bg-amber-50 text-amber-600 border-amber-100',
     };
     return (
-      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${styles[status] || styles['Activo']}`}>
-        {status}
+      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${styles[(status as string)] || 'bg-slate-50 text-slate-600 border-slate-100'}`}>
+        {String(n.label)}
       </span>
     );
   };
 
+  if (!isAuthenticated) {
+    return <Login onLogin={(token, user) => handleLogin(token, user)} />;
+  }
+
   return (
     <div className="flex min-h-screen bg-slate-50 overflow-hidden relative font-sans">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={activeTab} setActiveTab={navigateTo} onLogout={() => handleLogout(false)} user={authUser} />
       
       {notification && (
         <div className={`fixed top-6 right-6 z-[100] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold flex items-center gap-3 transition-all transform animate-in slide-in-from-right-10 ${notification.type === 'success' ? 'bg-indigo-600' : 'bg-slate-900'}`}>
@@ -172,7 +393,12 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {activeTab === 'users' && <StatsCards users={users} />}
+        {activeTab === 'users' && (
+          <StatsCards
+            users={users.filter(u => filterTeam === 'Todos' ? true : u.equipo === filterTeam)}
+            onMonthClick={(m) => setFilterMonth(prev => prev === m ? null : m)}
+          />
+        )}
 
         {/* Data Controls & Table */}
         <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200/60 overflow-hidden">
@@ -199,6 +425,18 @@ const App: React.FC = () => {
                   <option value="Todos">Todos los Equipos</option>
                   {TEAMS.map(team => <option key={team} value={team}>{team}</option>)}
                 </select>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-slate-400">Ordenar:</label>
+                  <select value={sortBy || ''} onChange={(e) => setSortBy(e.target.value || null)} className="px-3 py-2 rounded-xl border bg-white text-sm">
+                    <option value="">--</option>
+                    <option value="nombre">Colaborador</option>
+                    <option value="equipo">Equipo</option>
+                    <option value="mes">Mes</option>
+                    <option value="dia">Día</option>
+                    <option value="estado">Estado</option>
+                  </select>
+                  <button onClick={() => setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')} className="px-3 py-2 rounded-xl border bg-white text-sm">{sortDir === 'asc' ? '↑' : '↓'}</button>
+                </div>
               </div>
             )}
           </div>
@@ -208,12 +446,12 @@ const App: React.FC = () => {
               <table className="w-full text-left border-separate border-spacing-0">
                 <thead className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em] border-b border-slate-100">
                   <tr>
-                    <th className="px-8 py-5">Colaborador</th>
-                    <th className="px-8 py-5">Equipo</th>
-                    <th className="px-8 py-5">Mes Cumple</th>
-                    <th className="px-8 py-5 text-center">Día</th>
-                    <th className="px-8 py-5">Estado</th>
-                    <th className="px-8 py-5 text-center">Acciones</th>
+                        <th className="px-8 py-5 cursor-pointer" onClick={() => { setSortBy('nombre'); setSortDir(sortBy === 'nombre' && sortDir === 'asc' ? 'desc' : 'asc'); }}>Colaborador</th>
+                        <th className="px-8 py-5 cursor-pointer" onClick={() => { setSortBy('equipo'); setSortDir(sortBy === 'equipo' && sortDir === 'asc' ? 'desc' : 'asc'); }}>Equipo</th>
+                        <th className="px-8 py-5 cursor-pointer" onClick={() => { setSortBy('mes'); setSortDir(sortBy === 'mes' && sortDir === 'asc' ? 'desc' : 'asc'); }}>Mes Cumple</th>
+                        <th className="px-8 py-5 text-center cursor-pointer" onClick={() => { setSortBy('dia'); setSortDir(sortBy === 'dia' && sortDir === 'asc' ? 'desc' : 'asc'); }}>Día</th>
+                        <th className="px-8 py-5 cursor-pointer" onClick={() => { setSortBy('estado'); setSortDir(sortBy === 'estado' && sortDir === 'asc' ? 'desc' : 'asc'); }}>Estado</th>
+                        <th className="px-8 py-5 text-center">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100/60">
@@ -244,7 +482,11 @@ const App: React.FC = () => {
                           </td>
                           <td className="px-8 py-5">
                             <span className={`text-sm font-bold ${birthdayAlert ? 'text-pink-600' : 'text-slate-700'}`}>
-                              {user.mes}
+                              {(() => {
+                                const mnum = toMonthNumber(user.mes);
+                                if (mnum !== null) return MONTHS[Math.max(0, Math.min(11, mnum - 1))];
+                                return String(user.mes || '');
+                              })()}
                             </span>
                           </td>
                           <td className="px-8 py-5 text-center font-black text-sm">
@@ -262,14 +504,7 @@ const App: React.FC = () => {
                               >
                                 <span className="text-lg">✏️</span>
                               </button>
-                              <button 
-                                onClick={() => handleDeactivateUser(user.id)}
-                                className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all active:scale-90 ${user.estado === 'Inactivo' ? 'text-slate-300 cursor-not-allowed' : 'text-rose-600 hover:bg-rose-50'}`}
-                                disabled={user.estado === 'Inactivo'}
-                                title="Desactivar"
-                              >
-                                <span className="text-lg">🗑️</span>
-                              </button>
+                              {/* Desactivar removed from UI */}
                             </div>
                           </td>
                         </tr>
@@ -295,9 +530,11 @@ const App: React.FC = () => {
               <table className="w-full text-left border-separate border-spacing-0">
                 <thead className="bg-slate-50/50 text-slate-500 text-[10px] font-bold uppercase tracking-[0.15em] border-b border-slate-100">
                   <tr>
-                    <th className="px-8 py-5">Equipo</th>
+                    <th className="px-8 py-5">Nombre</th>
+                    <th className="px-8 py-5">SKU</th>
                     <th className="px-8 py-5">Group ID</th>
-                    <th className="px-8 py-5">Plantilla / Descripción</th>
+                    <th className="px-8 py-5">Path</th>
+                    <th className="px-8 py-5">Status</th>
                     <th className="px-8 py-5 text-center">Acciones</th>
                   </tr>
                 </thead>
@@ -314,16 +551,22 @@ const App: React.FC = () => {
                         <td className="px-8 py-5">
                           <div className="flex items-center gap-4">
                             <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm transition-transform group-hover:scale-110 bg-indigo-500">
-                              {group.equipo.charAt(0)}
+                              {String(group.name || '').charAt(0)}
                             </div>
-                            <span className="text-sm font-bold text-slate-800 leading-tight">{group.equipo}</span>
+                            <span className="text-sm font-bold text-slate-800 leading-tight">{group.name}</span>
                           </div>
+                        </td>
+                        <td className="px-8 py-5">
+                          <span className="text-sm text-slate-600">{(group as any).sku}</span>
                         </td>
                         <td className="px-8 py-5">
                           <span className="text-[11px] font-mono font-bold text-slate-400">{group.group_id}</span>
                         </td>
                         <td className="px-8 py-5">
-                          <p className="text-sm text-slate-600 max-w-xs truncate" title={group.plantilla}>{group.plantilla}</p>
+                          <p className="text-sm text-slate-600 max-w-xs truncate" title={(group as any).path_url}>{(group as any).path_url}</p>
+                        </td>
+                        <td className="px-8 py-5">
+                          <span className={`px-2 py-1 rounded-xl ${((group as any).status === 1 || (group as any).status === true || String((group as any).status).toLowerCase() === 'true') ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{((group as any).status === 1 || (group as any).status === true || String((group as any).status).toLowerCase() === 'true') ? 'Activo' : 'Inactivo'}</span>
                         </td>
                         <td className="px-8 py-5">
                           <div className="flex justify-center items-center gap-3">

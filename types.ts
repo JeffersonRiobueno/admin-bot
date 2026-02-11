@@ -1,10 +1,10 @@
 
-export type UserStatus = 'Activo' | 'Inactivo' | 'Licencia';
+export type UserStatus = 'Activo' | 'Inactivo' | 'Licencia' | boolean;
 
 export interface User {
   id: number;
   nombre: string;
-  mes: string;
+  mes: number | string;
   dia: number;
   equipo: string;
   estado: UserStatus;
@@ -13,9 +13,11 @@ export interface User {
 
 export interface Group {
   id: number;
-  equipo: string;
+  name: string;
+  sku: string;
   group_id: string;
-  plantilla: string;
+  path_url: string;
+  status: boolean | string;
 }
 
 export interface AppState {
@@ -37,7 +39,7 @@ export const MONTH_MAP: Record<string, number> = {
 };
 
 export const TEAMS = [
-  'Desarrollo', 'Ventas', 'Marketing', 'Recursos Humanos', 'Soporte', 'Operaciones'
+  'BCP', 'BCP-DEV', '-'
 ];
 
 export const STATUSES: UserStatus[] = ['Activo', 'Inactivo', 'Licencia'];

@@ -12,9 +12,11 @@ interface GroupModalProps {
 const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, groupToEdit }) => {
   const [formData, setFormData] = useState<Group>({
     id: 0,
-    equipo: '',
+    name: '',
+    sku: '',
     group_id: '',
-    plantilla: ''
+    path_url: '',
+    status: true
   });
 
   useEffect(() => {
@@ -23,9 +25,11 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, groupT
     } else {
       setFormData({
         id: Math.floor(Math.random() * 10000),
-        equipo: '',
+        name: '',
+        sku: '',
         group_id: `GRP-${Math.floor(Math.random() * 1000)}`,
-        plantilla: ''
+        path_url: '',
+        status: true
       });
     }
   }, [groupToEdit, isOpen]);
@@ -34,12 +38,14 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, groupT
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => ({ ...prev, [name]: value } as any));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    // normalize status to boolean
+    const payload = { ...formData, status: (formData as any).status ? 1 : 0 } as any;
+    onSave(payload);
   };
 
   const inputClasses = "w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all bg-white text-slate-800 font-medium placeholder:text-slate-400";
@@ -69,11 +75,23 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, groupT
               <input
                 required
                 type="text"
-                name="equipo"
-                value={formData.equipo}
+                name="name"
+                value={(formData as any).name}
                 onChange={handleChange}
                 className={inputClasses}
                 placeholder="Ej. Operaciones Digitales"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 ml-1">SKU</label>
+              <input
+                type="text"
+                name="sku"
+                value={(formData as any).sku}
+                onChange={handleChange}
+                className={inputClasses}
+                placeholder="BCP"
               />
             </div>
 
@@ -83,7 +101,7 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, groupT
                 required
                 type="text"
                 name="group_id"
-                value={formData.group_id}
+                value={(formData as any).group_id}
                 onChange={handleChange}
                 className={inputClasses}
                 placeholder="GRP-XXXX"
@@ -91,15 +109,23 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, groupT
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 ml-1">Descripción / Plantilla</label>
-              <textarea
-                name="plantilla"
-                rows={3}
-                value={formData.plantilla}
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 ml-1">Path URL</label>
+              <input
+                type="text"
+                name="path_url"
+                value={(formData as any).path_url}
                 onChange={handleChange}
                 className={inputClasses}
-                placeholder="Detalles sobre los integrantes o propósito del equipo..."
+                placeholder="cumples_bcp"
               />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 ml-1">Activo</label>
+              <div className="flex items-center gap-3">
+                <input type="checkbox" name="status" checked={(formData as any).status === true || (formData as any).status === 'True' || (formData as any).status === '1' || (formData as any).status === 1} onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.checked } as any))} />
+                <span className="text-sm text-slate-600">Marcar como activo</span>
+              </div>
             </div>
           </div>
 
