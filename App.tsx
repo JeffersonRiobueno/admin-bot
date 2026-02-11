@@ -181,6 +181,7 @@ const App: React.FC = () => {
         }
       } catch (error) {
         console.error('Error loading data for tab', error);
+        showNotification('Error cargando datos: ' + String(error), 'info');
       } finally {
         if (mounted) setIsLoading(false);
       }

@@ -56,18 +56,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve frontend build if present (allows single-container deployment)
-try {
-  const clientDist = path.resolve(__dirname, '../dist');
-  if (fs.existsSync(clientDist)) {
-    app.use(express.static(clientDist));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(clientDist, 'index.html'));
-    });
-  }
-} catch (e) {
-  console.warn('Error checking/serving client build:', e);
-}
+// NOTE: static serving moved below API route definitions so API paths are
+// handled by Express routes and not captured by the SPA catch-all.
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -324,6 +314,24 @@ app.delete('/api/groups/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Error deleting group' });
   }
 });
+
+// Serve frontend build if present (allows single-container deployment).
+// Must be placed after API routes so that requests to `/api/*` are handled
+// by the API and not by the SPA catch-all.
+try {
+  const clientDist = path.resolve(__dirname, '../dist');
+  if (fs.existsSync(clientDist)) {
+    app.use(express.static(clientDist));
+    app.get('*', (req, res, next) => {
+      // Let API routes pass through
+      if (req.path && req.path.startsWith('/api')) return next();
+      // Serve index.html for SPA routes
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
+  }
+} catch (e) {
+  console.warn('Error checking/serving client build:', e);
+}
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
 const server = app.listen(PORT, () => console.log(`API server listening on port ${PORT}`));

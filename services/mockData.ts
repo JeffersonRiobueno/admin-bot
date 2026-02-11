@@ -1,6 +1,9 @@
 
 import { User, Group } from '../types';
 
+// Determine runtime mode (Vite exposes import.meta.env.MODE)
+const isProd = typeof import.meta !== 'undefined' && !!(import.meta as any).env && (import.meta as any).env.MODE === 'production';
+
 export const initialUsers: User[] = [
   { id: 1, nombre: 'Alejandro García', mes: 'Marzo', dia: 15, equipo: 'Desarrollo', estado: 'Activo', id_empleado: 'EMP-001' },
   { id: 2, nombre: 'Beatriz Soler', mes: 'Enero', dia: 22, equipo: 'Marketing', estado: 'Activo', id_empleado: 'EMP-002' },
@@ -32,7 +35,10 @@ export const fetchUsers = async (): Promise<User[]> => {
     const data = await res.json();
     return data as User[];
   } catch (err) {
-    console.warn('Fetch users failed, falling back to mock data', err);
+    console.warn('Fetch users failed', err);
+    // In production do NOT fall back to mock data; surface the error so UI can show a message.
+    if (isProd) throw err;
+    // In development fallback to mock for offline convenience
     return new Promise((resolve) => setTimeout(() => resolve(initialUsers), 300));
   }
 };
@@ -47,7 +53,8 @@ export const fetchGroups = async (): Promise<Group[]> => {
     const data = await res.json();
     return data as Group[];
   } catch (err) {
-    console.warn('Fetch groups failed, falling back to mock data', err);
+    console.warn('Fetch groups failed', err);
+    if (isProd) throw err;
     return new Promise((resolve) => setTimeout(() => resolve(initialGroups), 300));
   }
 };
