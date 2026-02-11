@@ -46,6 +46,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute image tags (lowercase owner)
+        id: vars
+        run: |
+          OWNER_LO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image_latest=ghcr.io/${OWNER_LO}/admin-bot:latest" >> $GITHUB_OUTPUT
+          echo "image_sha=ghcr.io/${OWNER_LO}/admin-bot:${GITHUB_SHA}" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
@@ -54,7 +61,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ toLower(github.repository_owner) }}/admin-bot:latest
-            ghcr.io/${{ toLower(github.repository_owner) }}/admin-bot:${{ github.sha }}
+            ${{ steps.vars.outputs.image_latest }}
+            ${{ steps.vars.outputs.image_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
