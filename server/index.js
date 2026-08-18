@@ -172,13 +172,20 @@ app.get('/api/validate-cumple', async (_req, res) => {
   }
 });
 
+// Normalize incoming estado (boolean, 0/1, or string) to the 'true'/'false' text
+// format already used in the CUMPLES.estado column, to avoid mixing representations.
+const toEstadoText = (estado) => {
+  const truthy = estado === true || estado === 1 || estado === '1' || String(estado).toLowerCase() === 'true';
+  return truthy ? 'true' : 'false';
+};
+
 // Users
 app.get('/api/users', authenticateToken, async (req, res) => {
   try {
     // Read birthdays from CUMPLES table only
     const conn = await pool.getConnection();
     try {
-      const [rows] = await conn.query('SELECT id, nombre, mes, dia, equipo, estado, id_empleado FROM CUMPLES ORDER BY nombre');
+      const [rows] = await conn.query("SELECT id, nombre, mes, dia, equipo, estado, id_empleado FROM CUMPLES WHERE nombre IS NOT NULL ORDER BY nombre");
       res.json(rows);
     } finally {
       conn.release();
@@ -211,7 +218,7 @@ app.post('/api/users', authenticateToken, async (req, res) => {
     try {
       const [result] = await conn.execute(
         'INSERT INTO CUMPLES (nombre, mes, dia, equipo, estado, id_empleado) VALUES (?, ?, ?, ?, ?, ?)',
-        [nombre, mes, dia, equipo, estado ? 1 : 0, id_empleado]
+        [nombre, mes, dia, equipo, toEstadoText(estado), id_empleado]
       );
       res.status(201).json({ id: result.insertId });
     } finally {
@@ -230,7 +237,7 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
     try {
       await conn.execute(
         'UPDATE CUMPLES SET nombre = ?, mes = ?, dia = ?, equipo = ?, estado = ?, id_empleado = ? WHERE id = ?',
-        [nombre, mes, dia, equipo, estado ? 1 : 0, id_empleado, req.params.id]
+        [nombre, mes, dia, equipo, toEstadoText(estado), id_empleado, req.params.id]
       );
       res.json({ updated: true });
     } finally {
