@@ -90,23 +90,7 @@ const App: React.FC = () => {
     setAuthUser(userObj || null);
     startInactivity();
     attachActivityListeners();
-    // load data for current tab after login
-    (async () => {
-      try {
-        setIsLoading(true);
-        if (activeTab === 'users') {
-          const u = await fetchUsers();
-          setUsers(u);
-        } else {
-          const g = await fetchGroups();
-          setGroups(g);
-        }
-      } catch (e) {
-        console.error('Error loading after login', e);
-      } finally {
-        setIsLoading(false);
-      }
-    })();
+    // data for the active tab loads via the isAuthenticated-dependent effect below
   };
 
   const handleLogout = async (silent = false) => {
@@ -166,6 +150,7 @@ const App: React.FC = () => {
 
   // Load only the data needed for the active tab to avoid unnecessary requests
   useEffect(() => {
+    if (!isAuthenticated) return;
     let mounted = true;
     const loadForTab = async () => {
       try {
@@ -188,7 +173,7 @@ const App: React.FC = () => {
     };
     loadForTab();
     return () => { mounted = false; };
-  }, [activeTab]);
+  }, [activeTab, isAuthenticated]);
 
   const toMonthNumber = (m: any): number | null => {
     if (m === null || m === undefined) return null;
@@ -470,7 +455,7 @@ const App: React.FC = () => {
                           <td className="px-8 py-5">
                             <div className="flex items-center gap-4">
                               <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm transition-transform group-hover:scale-110 ${birthdayAlert ? 'bg-gradient-to-tr from-pink-500 to-rose-400' : 'bg-slate-200 text-slate-500'}`}>
-                                {user.nombre.charAt(0)}
+                                {(user.nombre || '').charAt(0)}
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-slate-800 leading-tight">{user.nombre}</p>
